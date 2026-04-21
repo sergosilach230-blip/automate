@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>AutoMate App</title>
+
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        :root {
+            --bg-main: #11151f; --bg-panel: #171b26; --bg-card: #202634;
+            --text-main: #ffffff; --text-muted: #9ca3af; --border-color: rgba(255, 255, 255, 0.05);
+            --sheet-bg: #ffffff; --sheet-text: #111827; --sheet-card: #f9fafb;
+            --map-filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+        }
+        body.light-theme {
+            --bg-main: #f3f4f6; --bg-panel: #ffffff; --bg-card: #f9fafb;
+            --text-main: #111827; --text-muted: #6b7280; --border-color: rgba(0, 0, 0, 0.05);
+            --sheet-bg: #ffffff; --sheet-text: #111827; --sheet-card: #ffffff;
+            --map-filter: none;
+        }
+        body { font-family: 'Manrope', sans-serif; background: var(--bg-main); overflow: hidden; margin: 0; color: var(--text-main); transition: background-color 0.3s, color 0.3s; }
+        #map { height: 100vh; width: 100vw; position: absolute; z-index: 0; background: var(--bg-main); transition: filter 0.3s; }
+        .map-tiles { filter: var(--map-filter); transition: filter 0.3s; }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+        .bottom-sheet { transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); background-color: var(--sheet-bg); color: var(--sheet-text); }
+        .sheet-card { background-color: var(--sheet-card); }
+        .leaflet-routing-container, .leaflet-control-attribution { display: none !important; }
+        .svg-icon { width: 24px; height: 24px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+        .bg-app-dark { background-color: var(--bg-panel); border-bottom: 1px solid var(--border-color); }
+        .bg-app-lighter { background-color: var(--bg-card); border: 1px solid var(--border-color); }
+        .text-cyan-app { color: #00e5ff; }
+        .bg-cyan-app { background-color: #00e5ff; }
+        .screen-bg { background-color: var(--bg-main); }
+        .input-field { background-color: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color); }
+    </style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const CATEGORIES = [
+        { id: 'service', nameKey: 'catService', icon: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>', color: '#8b5cf6' },
+        { id: 'wash', nameKey: 'catWash', icon: '<path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>', color: '#3b82f6' },
+        { id: 'gas', nameKey: 'catGas', icon: '<path d="M3 22v-8p2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v8"/><path d="M11 15h2a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-2"/><path d="M15 6h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4"/><line x1="7" y1="2" x2="7" y2="12"/>', color: '#ef4444' },
+        { id: 'shop', nameKey: 'catShop', icon: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', color: '#f97316' },
+        { id: 'ev', nameKey: 'catEv', icon: '<path d="M10 3s-3 3-3 8c0 5.5 5 10 5 10s5-4.5 5-10c0-5-3-8-3-8m-4 8h8"/>', color: '#10b981' },
+        { id: 'premium', nameKey: 'catPremium', icon: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>', color: '#f59e0b' },
+        { id: 'tow', nameKey: 'catTow', icon: '<path d="M3 17h13l3-4v-3h-5V7H8v3H3v7zM5 17a2 2 0 100 4 2 2 0 000-4zm11 0a2 2 0 100 4 2 2 0 000-4zM16 13h5"/>', color: '#fcd34d' },
+        { id: 'camera', nameKey: 'catCamera', pulse: true, icon: '<path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>', color: '#ef4444' },
+        { id: 'parking', nameKey: 'catParking', icon: '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/>', color: '#64748b' },
+        { id: 'accident', nameKey: 'catAccident', pulse: true, icon: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4m0 4h.01"/>', color: '#b91c1c' }
+    ];
+
+    const DATABASE = [
+        { id: 1, name: 'Avtoritet Severniy', type: 'service', lat: 41.296064, lng: 69.293695, rating: 4.2, distance: '4.5 км', price: 'от 60,000 UZS', img: 'linear-gradient(135deg, #1e3a8a, #3b82f6)' },
+        { id: 2, name: 'Avtoritet Severniy (Мойка)', type: 'wash', lat: 41.295934, lng: 69.293539, rating: 4.0, distance: '4.5 км', price: '100,000 UZS', img: 'linear-gradient(135deg, #831843, #ec4899)' },
+        { id: 3, name: 'Avtoritet Severniy (Магазин)', type: 'shop', lat: 41.295733, lng: 69.293184, rating: 4.5, distance: '4.6 км', price: 'В наличии', img: 'linear-gradient(135deg, #78350f, #f59e0b)' },
+        { id: 4, name: 'A-Bozor Severniy', type: 'shop', lat: 41.291627, lng: 69.286597, rating: 4.3, distance: '5.0 км', price: 'В наличии', img: 'linear-gradient(135deg, #78350f, #f59e0b)' },
+        { id: 5, name: 'A-Bozor Severniy (СТО)', type: 'service', lat: 41.291627, lng: 69.286597, rating: 3.8, distance: '5.0 км', price: 'от 60,000 UZS', img: 'linear-gradient(135deg, #374151, #1f2937)' },
+        { id: 6, name: 'Avtoritet Oq-Tepa', type: 'service', lat: 41.307288, lng: 69.206552, rating: 4.8, distance: '2.1 км', price: 'По прайсу', img: 'linear-gradient(135deg, #1e3a8a, #3b82f6)' },
+        { id: 7, name: 'Avtoritet Oq-Tepa (Мойка)', type: 'wash', lat: 41.306296, lng: 69.206973, rating: 4.6, distance: '2.1 км', price: 'от 700,000 UZS', img: 'linear-gradient(135deg, #831843, #ec4899)' },
+        { id: 8, name: 'Avtoritet Lunacharskiy', type: 'service', lat: 41.341097, lng: 69.358939, rating: 4.1, distance: '8.2 км', price: 'По прайсу', img: 'linear-gradient(135deg, #374151, #1f2937)' },
+        { id: 9, name: 'Avtoritet Lunacharskiy (Мойка)', type: 'wash', lat: 41.340780, lng: 69.358625, rating: 4.4, distance: '8.2 км', price: '5,000 UZS', img: 'linear-gradient(135deg, #831843, #ec4899)' },
+        { id: 10, name: 'A-Bozor Comfort', type: 'shop', lat: 41.304208, lng: 69.318933, rating: 4.6, distance: '3.3 км', price: 'Тюнинг', img: 'linear-gradient(135deg, #78350f, #f59e0b)' },
+        { id: 11, name: 'Abozor Parkent', type: 'service', lat: 41.304347, lng: 69.319563, rating: 3.5, distance: '3.4 км', price: '150,000 UZS', img: 'linear-gradient(135deg, #374151, #1f2937)' },
+        { id: 12, name: 'Abozor Yunusobod', type: 'shop', lat: 41.373308, lng: 69.309917, rating: 4.3, distance: '7.5 км', price: 'АКБ', img: 'linear-gradient(135deg, #78350f, #f59e0b)' },
+        { id: 13, name: 'Abozor Yunusobod (СТО)', type: 'service', lat: 41.373308, lng: 69.309917, rating: 3.7, distance: '7.5 км', price: '300,000 UZS', img: 'linear-gradient(135deg, #374151, #1f2937)' },
+        { id: 14, name: 'Abozor Turkiston EV', type: 'ev', lat: 41.295701, lng: 69.293067, rating: 4.7, distance: '4.6 км', price: 'Диагностика', img: 'linear-gradient(135deg, #065f46, #10b981)' },
+        { id: 15, name: 'Avtoritet Kushbegi', type: 'premium', lat: 41.279640, lng: 69.273752, rating: 4.2, distance: '3.6 км', price: 'от 250,000 UZS', img: 'linear-gradient(135deg, #b45309, #f59e0b)' },
+        { id: 16, name: 'Avtoritet Besharik', type: 'service', lat: 41.283886, lng: 69.340785, rating: 4.4, distance: '6.1 км', price: 'Дизель', img: 'linear-gradient(135deg, #374151, #1f2937)' },
+        { id: 20, name: 'Mustang Gavhar', type: 'gas', lat: 41.253894, lng: 69.204382, rating: 4.1, distance: '8.5 км', price: 'АИ-92, 95', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 21, name: 'Mustang Gavhar (Масло)', type: 'service', lat: 41.253996, lng: 69.204578, rating: 3.9, distance: '8.5 км', price: '60,000 UZS', img: 'linear-gradient(135deg, #374151, #1f2937)' },
+        { id: 22, name: 'Mustang Ashrafi', type: 'gas', lat: 41.278813, lng: 69.323885, rating: 4.3, distance: '5.2 км', price: 'АИ-95, ДТ', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 23, name: 'Mustang Ashrafi (СТО)', type: 'service', lat: 41.278813, lng: 69.323885, rating: 4.0, distance: '5.2 км', price: 'Замена', img: 'linear-gradient(135deg, #374151, #1f2937)' },
+        { id: 24, name: 'Mustang Sergeli', type: 'gas', lat: 41.243279, lng: 69.230492, rating: 4.2, distance: '9.1 км', price: 'АИ-92, 95', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 25, name: 'Mustang Sergeli (СТО)', type: 'service', lat: 41.243279, lng: 69.230492, rating: 3.7, distance: '9.1 км', price: 'Шиномонтаж', img: 'linear-gradient(135deg, #374151, #1f2937)' },
+        { id: 26, name: 'Mustang Karasu', type: 'gas', lat: 41.310644, lng: 69.344450, rating: 4.4, distance: '5.5 км', price: 'АИ-100', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 27, name: 'Mustang Kushbegi', type: 'gas', lat: 41.268920, lng: 69.289206, rating: 4.2, distance: '4.8 км', price: 'АИ-92, 95', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 30, name: 'iWash Mirzoulugbek', type: 'wash', lat: 41.352299, lng: 69.354482, rating: 4.4, distance: '7.8 км', price: '5,000 UZS/цикл', img: 'linear-gradient(135deg, #831843, #ec4899)' },
+        { id: 31, name: 'iWash Uchtepa', type: 'wash', lat: 41.291959, lng: 69.169075, rating: 4.6, distance: '9.5 км', price: 'от 5,000 UZS', img: 'linear-gradient(135deg, #831843, #ec4899)' },
+        { id: 32, name: 'iWash Yunusobod', type: 'wash', lat: 41.322746, lng: 69.278713, rating: 4.3, distance: '1.5 км', price: '5,000 UZS', img: 'linear-gradient(135deg, #831843, #ec4899)' },
+        { id: 33, name: 'iWash Yangihayot', type: 'wash', lat: 41.217855, lng: 69.225644, rating: 4.7, distance: '11.5 км', price: 'Комплекс', img: 'linear-gradient(135deg, #831843, #ec4899)' },
+        { id: 80, name: 'Moyka-DS Chilanzar', type: 'wash', lat: 41.272602, lng: 69.180598, rating: 4.6, distance: '9.2 км', price: '5,000 UZS', img: 'linear-gradient(135deg, #831843, #ec4899)' },
+        { id: 84, name: 'Moyka-DS Kuyluk', type: 'wash', lat: 41.240287, lng: 69.318196, rating: 4.2, distance: '8.7 км', price: 'Робот от 40к', img: 'linear-gradient(135deg, #831843, #ec4899)' },
+        { id: 40, name: 'Ibr Petroleum', type: 'gas', lat: 41.362486, lng: 69.289438, rating: 3.8, distance: '5.8 км', price: 'АИ-92, 95', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 41, name: 'UNG Petro Аэропорт', type: 'gas', lat: 41.257848, lng: 69.255798, rating: 3.5, distance: '6.3 км', price: 'АИ-92', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 44, name: 'Carvon А.Дониш', type: 'gas', lat: 41.358599, lng: 69.273569, rating: 3.7, distance: '5.3 км', price: 'АИ-95', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 54, name: 'Green Dizel', type: 'gas', lat: 41.382822, lng: 69.290971, rating: 4.4, distance: '8.1 км', price: 'Дизель', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 60, name: 'Lukoil Axangaran', type: 'gas', lat: 41.273580, lng: 69.363001, rating: 4.5, distance: '8.2 км', price: 'АИ-100, 95', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 62, name: 'Lukoil Tashkent City', type: 'gas', lat: 41.329673, lng: 69.225205, rating: 4.6, distance: '4.9 км', price: 'АИ-100', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 70, name: 'TOK BOR Seoul Moon', type: 'ev', lat: 41.301220, lng: 69.247691, rating: 4.8, distance: '2.9 км', price: '2500 UZS/кВт', img: 'linear-gradient(135deg, #065f46, #10b981)' },
+        { id: 71, name: 'TOK BOR Riviera', type: 'ev', lat: 41.339511, lng: 69.254376, rating: 4.7, distance: '3.8 км', price: '2500 UZS/кВт', img: 'linear-gradient(135deg, #065f46, #10b981)' },
+        { id: 74, name: 'TOK BOR Central Park', type: 'ev', lat: 41.307269, lng: 69.295662, rating: 4.9, distance: '1.4 км', price: '2500 UZS/кВт', img: 'linear-gradient(135deg, #065f46, #10b981)' },
+        { id: 93, name: 'Auto-Prestige', type: 'shop', lat: 41.322869, lng: 69.264574, rating: 4.8, distance: '1.8 км', price: 'Автозвук', img: 'linear-gradient(135deg, #78350f, #f59e0b)' },
+        { id: 100, name: 'Brookland Mirabad', type: 'premium', lat: 41.292851, lng: 69.273294, rating: 4.6, distance: '2.1 км', price: 'Детейлинг', img: 'linear-gradient(135deg, #b45309, #f59e0b)' },
+        { id: 102, name: 'Black Star Mirabad', type: 'premium', lat: 41.290755, lng: 69.272713, rating: 4.8, distance: '2.3 км', price: 'Керамика', img: 'linear-gradient(135deg, #b45309, #f59e0b)' },
+        { id: 201, name: 'Радар 60 км/ч', type: 'camera', lat: 41.3115, lng: 69.2800, rating: null, distance: '0.5 км', price: 'Контроль', img: 'linear-gradient(135deg, #7f1d1d, #ef4444)' },
+        { id: 301, name: 'City Parking', type: 'parking', lat: 41.3130, lng: 69.2780, rating: 4.1, distance: '0.6 км', price: '5,000 UZS', img: 'linear-gradient(135deg, #334155, #64748b)' },
+        { id: 401, name: 'Эвакуатор 24/7', type: 'tow', lat: 41.3150, lng: 69.2820, rating: 4.9, distance: '0.8 км', price: 'от 150к', img: 'linear-gradient(135deg, #854d0e, #fcd34d)' },
+        { id: 501, name: 'Авария', type: 'accident', lat: 41.3090, lng: 69.2710, rating: null, distance: '1.2 км', price: 'Пробка', img: 'linear-gradient(135deg, #7f1d1d, #b91c1c)' }
+    ];
+
+    const TRANSLATIONS = {
+        ru: {
+            search: 'Поиск сервисов в Ташкенте', near: 'Рядом с вами', found: 'сервисов найдено',
+            routeBuilt: 'Маршрут построен', readyNav: 'Готово к навигации', time: 'Время в пути', dist: 'Расстояние', min: 'мин', km: 'км', go: 'Поехали', buildRoute: 'Построить маршрут', view: 'Смотреть',
+            navHome: 'Главная', navMap: 'Карта', navBook: 'Чат', navProf: 'Профиль',
+            catService: 'Автосервис', catWash: 'Мойка', catGas: 'Заправка', catShop: 'Запчасти', catEv: 'Электро', catPremium: 'Премиум', catTow: 'Эвакуатор', catCamera: 'Камеры', catParking: 'Парковки', catAccident: 'События',
+            theme: 'Тема', lang: 'Язык', sub: 'Подписка', login: 'Войти', reg: 'Регистрация', logout: 'Выйти', settings: 'Настройки', about: 'О приложении',
+            planFree: 'Базовый (Бесплатно)', planPro: 'PRO ($4.99)', planPremium: 'Premium ($11.99)', current: 'Ваш тариф', choose: 'Выбрать', support: 'Служба поддержки'
+        },
+        en: {
+            search: 'Search services in Tashkent', near: 'Near you', found: 'services found',
+            routeBuilt: 'Route is ready', readyNav: 'Ready for navigation', time: 'Travel time', dist: 'Distance', min: 'min', km: 'km', go: 'Let\'s Go', buildRoute: 'Build Route', view: 'View',
+            navHome: 'Home', navMap: 'Map', navBook: 'Chat', navProf: 'Profile',
+            catService: 'Service', catWash: 'Car Wash', catGas: 'Gas', catShop: 'Parts', catEv: 'EV Charge', catPremium: 'Premium', catTow: 'Tow Truck', catCamera: 'Cameras', catParking: 'Parking', catAccident: 'Events',
+            theme: 'Theme', lang: 'Language', sub: 'Subscription', login: 'Sign In', reg: 'Sign Up', logout: 'Logout', settings: 'Settings', about: 'About App',
+            planFree: 'Basic (Free)', planPro: 'PRO ($4.99)', planPremium: 'Premium ($11.99)', current: 'Current', choose: 'Select', support: 'Support Team'
+        },
+        uz: {
+            search: 'Toshkentda xizmatlarni qidirish', near: 'Yaqiningizda', found: 'xizmat topildi',
+            routeBuilt: 'Marshrut tayyor', readyNav: 'Navigatsiyaga tayyor', time: 'Vaqt', dist: 'Masofa', min: 'daq', km: 'km', go: 'Boshladik', buildRoute: 'Marshrut qurish', view: 'Ko\'rish',
+            navHome: 'Asosiy', navMap: 'Xarita', navBook: 'Chat', navProf: 'Profil',
+            catService: 'Servis', catWash: 'Yuvish', catGas: 'Yoqilg\'i', catShop: 'Ehtiyot qismlar', catEv: 'Elektr', catPremium: 'Premium', catTow: 'Evakuator', catCamera: 'Radarlar', catParking: 'Turargohlar', catAccident: 'Voqealar',
+            theme: 'Mavzu', lang: 'Til', sub: 'Obuna', login: 'Kirish', reg: 'Ro\'yxatdan o\'tish', logout: 'Chiqish', settings: 'Sozlamalar', about: 'Ilova haqida',
+            planFree: 'Asosiy (Bepul)', planPro: 'PRO ($4.99)', planPremium: 'Premium ($11.99)', current: 'Joriy', choose: 'Tanlash', support: 'Qo\'llab-quvvatlash'
+        }
+    };
+
+    const SvgIcon = ({ content, className }) => (
+        <svg viewBox="0 0 24 24" className={`svg-icon ${className}`} dangerouslySetInnerHTML={{__html: content}} />
+    );
+
+    const App = () => {
+        // --- ИНИЦИАЛИЗАЦИЯ TELEGRAM WEB APP ---
+        const tg = window.Telegram.WebApp;
+
+        const [theme, setTheme] = useState(() => localStorage.getItem('automate_theme') || 'dark');
+        const [lang, setLang] = useState(() => localStorage.getItem('automate_lang') || 'ru');
+        const t = TRANSLATIONS[lang];
+
+        const [activeTab, setActiveTab] = useState('home');
+        const [activeCategory, setActiveCategory] = useState('service');
+        const [searchQuery, setSearchQuery] = useState('');
+        
+        const [map, setMap] = useState(null);
+        const [routing, setRouting] = useState(null);
+        const [userPos, setUserPos] = useState([41.3111, 69.2797]);
+        const markersRef = useRef({});
+
+        const [sheetState, setSheetState] = useState('half');
+        const [selectedPlace, setSelectedPlace] = useState(null);
+        const [routeInfo, setRouteInfo] = useState(null);
+
+        const [currentUser, setCurrentUser] = useState(() => JSON.parse(localStorage.getItem('automate_user')) || null);
+        const [username, setUsername] = useState('');
+
+        const [chatMsg, setChatMsg] = useState("");
+        const [messages, setMessages] = useState([{ sender: 'bot', text: 'Здравствуйте! Я ассистент AutoMate. Готов помочь.' }]);
+
+        // Эффекты
+        useEffect(() => {
+            tg.ready();
+            tg.expand(); // Разворачиваем на весь экран
+            
+            // Автоматический вход через данные Telegram
+            if (tg.initDataUnsafe?.user) {
+                const user = tg.initDataUnsafe.user;
+                const tgUser = { 
+                    name: user.first_name + (user.last_name ? ' ' + user.last_name : ''), 
+                    tier: 'free',
+                    username: user.username
+                };
+                setCurrentUser(tgUser);
+                localStorage.setItem('automate_user', JSON.stringify(tgUser));
+            }
+        }, []);
+
+        useEffect(() => {
+            if (theme === 'light') document.body.classList.add('light-theme');
+            else document.body.classList.remove('light-theme');
+            localStorage.setItem('automate_theme', theme);
+        }, [theme]);
+
+        useEffect(() => { localStorage.setItem('automate_lang', lang); }, [lang]);
+
+        useEffect(() => {
+            if (!map) {
+                const m = L.map('map', { zoomControl: false }).setView(userPos, 13);
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png', { maxZoom: 19, className: 'map-tiles' }).addTo(m);
+                setMap(m);
+
+                if ("geolocation" in navigator) {
+                    navigator.geolocation.getCurrentPosition((pos) => {
+                        const coords = [pos.coords.latitude, pos.coords.longitude];
+                        setUserPos(coords);
+                        m.setView(coords, 14);
+                        L.circleMarker(coords, { radius: 8, color: '#fff', fillColor: '#00e5ff', fillOpacity: 1, weight: 2 }).addTo(m);
+                    }, () => console.log("Используем Ташкент по умолчанию"), { enableHighAccuracy: true });
+                }
+            }
+        }, []);
+
+        useEffect(() => {
+            if (!map) return;
+            Object.values(markersRef.current).forEach(marker => map.removeLayer(marker));
+            markersRef.current = {};
+
+            const filteredData = DATABASE.filter(loc => loc.type === activeCategory);
+
+            filteredData.forEach(loc => {
+                const catData = CATEGORIES.find(c => c.id === loc.type);
+                const isPulse = catData && catData.pulse;
+                const iconColor = catData ? catData.color : '#00e5ff';
+                
+                const iconHtml = `<div style="background: ${iconColor}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.3); ${isPulse ? 'animation: pulse-red 2s infinite;' : ''}"></div>`;
+                
+                const marker = L.marker([loc.lat, loc.lng], {
+                    icon: L.divIcon({ html: iconHtml, className: '', iconSize: [24, 24], iconAnchor: [12, 12] })
+                }).addTo(map);
+
+                marker.on('click', () => {
+                    setSelectedPlace(loc);
+                    setRouteInfo(null);
+                    setSheetState('half');
+                    map.flyTo([loc.lat, loc.lng], 15, { duration: 0.5 });
+                });
+                markersRef.current[loc.id] = marker;
+            });
+        }, [map, activeCategory]);
+
+        const buildRoute = (place) => {
+            if (routing) map.removeControl(routing);
+            const r = L.Routing.control({
+                waypoints: [L.latLng(userPos[0], userPos[1]), L.latLng(place.lat, place.lng)],
+                lineOptions: { styles: [{ color: '#00e5ff', weight: 5, opacity: 0.8 }] },
+                createMarker: () => null, show: false, fitSelectedRoutes: true
+            }).addTo(map);
+            
+            r.on('routesfound', function(e) {
+                const summary = e.routes[0].summary;
+                setRouteInfo({ time: Math.round(summary.totalTime / 60), distance: (summary.totalDistance / 1000).toFixed(1) });
+            });
+            setRouting(r);
+            setSheetState('half');
+        };
+
+        const cancelRoute = () => {
+            if (routing) map.removeControl(routing);
+            setRouting(null); setRouteInfo(null); setSelectedPlace(null);
+        };
+
+        const locateUser = () => {
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition((pos) => {
+                    const coords = [pos.coords.latitude, pos.coords.longitude];
+                    setUserPos(coords);
+                    if(map) {
+                        map.flyTo(coords, 15);
+                        L.circleMarker(coords, { radius: 8, color: '#fff', fillColor: '#00e5ff', fillOpacity: 1, weight: 2 }).addTo(map);
+                    }
+                });
+            }
+        };
+
+        const handleLogin = (e) => {
+            e.preventDefault();
+            if(username) {
+                const user = { name: username, tier: 'free' };
+                localStorage.setItem('automate_user', JSON.stringify(user));
+                setCurrentUser(user);
+                setUsername('');
+            }
+        };
+
+        const changeTier = (tier) => {
+            if(currentUser) {
+                const updated = { ...currentUser, tier };
+                localStorage.setItem('automate_user', JSON.stringify(updated));
+                setCurrentUser(updated);
+            }
+        };
+
+        const handleSendMessage = async (e) => {
+            e.preventDefault();
+            if (!chatMsg.trim()) return;
+            const userText = chatMsg;
+            setMessages(prev => [...prev, { sender: 'user', text: userText }]);
+            setChatMsg("");
+            
+            try {
+                // ВНИМАНИЕ: Оставляю отправку напрямую, как вы и просили.
+                const botToken = "8616031797:AAFqnPtCI5huuUYaDycg5gLCfILh6PS7sT0";
+                const adminId = "488345626";
+                const senderName = currentUser ? currentUser.name : "Неизвестный клиент";
+                
+                const textToSend = `✉️ В чат пишет: ${senderName}\n\n${userText}`;
+                
+                await fetch(`https://api.telegram.org/bot${botToken}/sendMessage?chat_id=${adminId}&text=${encodeURIComponent(textToSend)}`);
+                setTimeout(() => setMessages(prev => [...prev, { sender: 'bot', text: 'Сообщение отправлено оператору @fifiren.' }]), 800);
+            } catch (err) {
+                 setTimeout(() => setMessages(prev => [...prev, { sender: 'bot', text: 'Ошибка сети.' }]), 800);
+            }
+        };
+
+        const filteredPlaces = DATABASE.filter(p => p.type === activeCategory && p.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+        const renderScreen = () => {
+            if(activeTab === 'profile') {
+                return (
+                    <div className="absolute inset-0 z-40 screen-bg p-6 overflow-y-auto pb-24 transition-colors">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-2xl font-bold">{t.navProf}</h2>
+                            <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="p-2 bg-app-lighter rounded-full border border-color text-cyan-app">
+                                {theme === 'dark' ? '☀️' : '🌙'}
+                            </button>
+                        </div>
+                        
+                        {!currentUser ? (
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                <input type="text" placeholder="Имя пользователя" value={username} onChange={e=>setUsername(e.target.value)} className="w-full input-field p-4 rounded-xl outline-none" required/>
+                                <button type="submit" className="w-full bg-cyan-app text-black font-bold p-4 rounded-xl">{t.login}</button>
+                            </form>
+                        ) : (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-4 bg-app-lighter p-4 rounded-2xl border border-color">
+                                    <div className="w-16 h-16 bg-cyan-app/20 rounded-full flex items-center justify-center border border-cyan-app/30"><h3 className="text-2xl font-bold text-cyan-app">{currentUser.name[0]}</h3></div>
+                                    <div>
+                                        <h3 className="text-xl font-bold">{currentUser.name}</h3>
+                                        <p className="text-sm text-muted">{t.navProf} активен</p>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 className="text-muted text-sm mb-3 uppercase font-bold">{t.sub}</h4>
+                                    {['free', 'pro', 'premium'].map(tier => (
+                                        <div key={tier} className={`p-4 rounded-xl mb-3 border ${currentUser.tier === tier ? 'border-cyan-app bg-cyan-app/10' : 'border-color bg-app-lighter'}`}>
+                                            <div className="flex justify-between items-center">
+                                                <span className={`font-bold ${tier === 'free' ? 'text-gray-400' : tier === 'pro' ? 'text-cyan-app' : 'text-yellow-500'}`}>
+                                                    {tier === 'free' ? t.planFree : tier === 'pro' ? t.planPro : t.planPremium}
+                                                </span>
+                                                <button onClick={()=>changeTier(tier)} className={`px-3 py-1 text-xs font-bold rounded-lg ${currentUser.tier === tier ? 'bg-cyan-app text-black' : 'bg-gray-500/20 text-muted'}`}>
+                                                    {currentUser.tier === tier ? t.current : t.choose}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                
+                                <div className="pt-4 border-t border-color">
+                                    <div className="flex justify-between items-center bg-app-lighter p-4 rounded-xl border border-color mb-4">
+                                        <span className="font-bold">{t.lang}</span>
+                                        <select value={lang} onChange={(e) => setLang(e.target.value)} className="bg-transparent text-cyan-app font-bold outline-none">
+                                            <option value="ru">Русский</option>
+                                            <option value="en">English</option>
+                                            <option value="uz">O'zbekcha</option>
+                                        </select>
+                                    </div>
+                                    <button onClick={()=>{localStorage.removeItem('automate_user'); setCurrentUser(null)}} className="w-full bg-red-500/10 text-red-500 border border-red-500/20 font-bold p-4 rounded-xl">{t.logout}</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                );
+            }
+            if(activeTab === 'chat') {
+                 return (
+                    <div className="absolute inset-0 z-40 screen-bg flex flex-col pb-[80px] transition-colors">
+                        <div className="bg-app-dark p-4 border-b border-color flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-cyan-app/20 text-cyan-app flex items-center justify-center border border-cyan-app/30">
+                                <SvgIcon content={`<path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-1-1-1.73a2 2 0 0 1 2-2z"/>`} />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-sm">{t.support}</h3>
+                                <p className="text-[11px] text-cyan-app font-semibold">@fifiren</p>
+                            </div>
+                        </div>
+                        <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-3 custom-scroll">
+                            {messages.map((m, i) => (
+                                <div key={i} className={`max-w-[85%] p-3.5 rounded-2xl text-sm ${m.sender === 'user' ? 'bg-cyan-app text-black self-end rounded-br-none font-bold' : 'bg-app-lighter border border-color self-start rounded-bl-none'}`}>{m.text}</div>
+                            ))}
+                        </div>
+                        <form onSubmit={handleSendMessage} className="p-4 bg-app-dark border-t border-color flex gap-2">
+                            <input type="text" value={chatMsg} onChange={e=>setChatMsg(e.target.value)} placeholder="Сообщение..." className="flex-1 input-field rounded-xl px-4 text-sm font-medium outline-none focus:border-cyan-app" />
+                            <button type="submit" className="bg-cyan-app text-black w-12 h-12 rounded-xl flex items-center justify-center">
+                                <SvgIcon content={`<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>`} className="w-5 h-5"/>
+                            </button>
+                        </form>
+                    </div>
+                 );
+            }
+            return null;
+        };
+
+        return (
+            <div className={`relative h-screen w-screen font-sans flex flex-col ${theme}`}>
+                <div id="map"></div>
+
+                {activeTab === 'home' && (
+                    <div className="z-10 bg-app-dark rounded-b-3xl shadow-lg pointer-events-auto flex flex-col pt-12 pb-4 transition-colors">
+                        <div className="flex justify-center items-center mb-6">
+                            <h1 className="text-2xl font-extrabold tracking-tight text-main">Auto<span className="text-cyan-app">Mate</span></h1>
+                        </div>
+                        <div className="px-5 mb-6">
+                            <div className="bg-app-lighter rounded-2xl flex items-center px-4 py-3.5 transition-colors">
+                                <SvgIcon content={`<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>`} className="text-muted mr-3" />
+                                <input type="text" placeholder={t.search} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-main placeholder-gray-500 w-full font-medium text-sm"/>
+                            </div>
+                        </div>
+                        <div className="flex overflow-x-auto hide-scroll px-5 gap-4 snap-x">
+                            {CATEGORIES.map(cat => (
+                                <div key={cat.id} onClick={() => { setActiveCategory(cat.id); setSelectedPlace(null); setRouteInfo(null); setSheetState('half'); }} className="flex flex-col items-center snap-start cursor-pointer group">
+                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-2 transition-all duration-200 ${activeCategory === cat.id ? 'bg-cyan-app text-black shadow-[0_4px_15px_rgba(0,229,255,0.4)]' : 'bg-app-lighter text-muted'}`}>
+                                        <SvgIcon content={cat.icon} className="w-7 h-7" />
+                                    </div>
+                                    <span className={`text-[11px] font-semibold ${activeCategory === cat.id ? 'text-main' : 'text-muted'}`}>{t[cat.nameKey]}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <div className="flex-1 pointer-events-none"></div>
+                
+                {activeTab === 'map' && (
+                     <button onClick={locateUser} className="absolute bottom-[100px] right-4 z-30 bg-app-lighter border border-color p-4 rounded-full shadow-lg text-cyan-app pointer-events-auto">
+                        <SvgIcon content={`<polygon points="3 11 22 2 13 21 11 13 3 11"/>`} />
+                    </button>
+                )}
+
+                {renderScreen()}
+
+                {activeTab === 'home' && (
+                    <div className={`z-20 rounded-t-[32px] pointer-events-auto absolute bottom-[80px] w-full shadow-[0_-10px_40px_rgba(0,0,0,0.15)] bottom-sheet flex flex-col ${sheetState === 'hidden' ? 'translate-y-full' : sheetState === 'half' ? 'h-[45vh]' : 'h-[80vh]'}`}>
+                        <div className="w-full flex justify-center py-3 cursor-pointer" onClick={() => setSheetState(sheetState === 'half' ? 'full' : 'half')}>
+                            <div className="w-12 h-1.5 bg-gray-300 rounded-full"></div>
+                        </div>
+                        <div className="px-6 pb-4 flex justify-between items-end">
+                            <div>
+                                <h2 className="text-xl font-bold leading-tight">{routeInfo ? t.routeBuilt : selectedPlace ? selectedPlace.name : t.near}</h2>
+                                <p className="text-sm text-gray-500 font-medium">{routeInfo ? t.readyNav : selectedPlace ? t[CATEGORIES.find(c=>c.id===selectedPlace.type).nameKey] : `${filteredPlaces.length} ${t.found}`}</p>
+                            </div>
+                            {!routeInfo && !selectedPlace && (
+                                <button onClick={() => setSheetState(sheetState === 'half' ? 'full' : 'half')} className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-600">
+                                    <SvgIcon content={sheetState === 'half' ? '<polyline points="18 15 12 9 6 15"/>' : '<polyline points="6 9 12 15 18 9"/>'} className="w-5 h-5" />
+                                </button>
+                            )}
+                            {(routeInfo || selectedPlace) && (
+                                <button onClick={cancelRoute} className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-600">
+                                    <SvgIcon content={`<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`} className="w-5 h-5" />
+                                </button>
+                            )}
+                        </div>
+                        <div className="flex-1 overflow-y-auto hide-scroll px-6 pb-6">
+                            {routeInfo ? (
+                                <div className="flex flex-col gap-4 mt-2">
+                                    <div className="bg-cyan-50 border border-cyan-100 p-5 rounded-2xl flex items-center justify-between">
+                                        <div><p className="text-xs text-cyan-600 font-bold uppercase tracking-wider mb-1">{t.time}</p><p className="text-3xl font-black text-cyan-900">{routeInfo.time} <span className="text-lg">{t.min}</span></p></div>
+                                        <div className="text-right"><p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">{t.dist}</p><p className="text-xl font-bold text-gray-800">{routeInfo.distance} {t.km}</p></div>
+                                    </div>
+                                    <button className="w-full py-4 bg-cyan-app text-black font-extrabold rounded-2xl text-lg shadow-[0_5px_20px_rgba(0,229,255,0.3)]">{t.go}</button>
+                                </div>
+                            ) : selectedPlace ? (
+                                <div className="flex flex-col gap-4 mt-2">
+                                    <div className="w-full h-40 rounded-2xl" style={{background: selectedPlace.img}}></div>
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex items-center gap-1.5 text-yellow-500 font-bold"><SvgIcon content={`<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>`} className="w-5 h-5 fill-current" />{selectedPlace.rating}</div>
+                                        <div className="flex items-center gap-1 text-gray-500 text-sm font-semibold"><SvgIcon content={`<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>`} className="w-4 h-4" />{selectedPlace.distance}</div>
+                                    </div>
+                                    <p className="text-gray-600 font-bold bg-gray-100 p-3 rounded-xl border border-gray-200">{selectedPlace.price}</p>
+                                    <button onClick={() => buildRoute(selectedPlace)} className="w-full py-4 mt-2 bg-cyan-app text-black font-extrabold rounded-2xl text-lg shadow-[0_5px_20px_rgba(0,229,255,0.3)]">{t.buildRoute}</button>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col gap-4">
+                                    {filteredPlaces.map(place => (
+                                        <div key={place.id} className="border border-gray-100 rounded-2xl p-3 flex gap-4 sheet-card shadow-sm">
+                                            <div className="w-24 h-24 rounded-xl flex-shrink-0" style={{background: place.img}}></div>
+                                            <div className="flex-1 flex flex-col justify-between py-1">
+                                                <div>
+                                                    <h3 className="font-bold text-gray-900 leading-tight mb-1">{place.name}</h3>
+                                                    <div className="flex items-center gap-3 text-sm">
+                                                        {place.rating && <span className="flex items-center gap-1 text-yellow-500 font-bold"><SvgIcon content={`<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>`} className="w-3.5 h-3.5 fill-current" />{place.rating}</span>}
+                                                        <span className="flex items-center gap-1 text-gray-500 font-medium"><SvgIcon content={`<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>`} className="w-3.5 h-3.5" />{place.distance}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex justify-between items-end mt-2">
+                                                    <span className="text-[11px] text-gray-500 font-bold">{place.price}</span>
+                                                    <button onClick={() => { setSelectedPlace(place); setSheetState('half'); map.flyTo([place.lat, place.lng], 15); }} className="bg-cyan-app text-black text-xs font-bold px-4 py-2 rounded-lg">{t.view}</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* НИЖНЯЯ ПАНЕЛЬ НАВИГАЦИИ */}
+                <div className="z-50 bg-app-dark h-[80px] w-full absolute bottom-0 flex justify-around items-center px-2 pb-safe pointer-events-auto transition-colors">
+                    <button onClick={() => { setActiveTab('home'); setSheetState('half'); }} className={`flex flex-col items-center justify-center w-16 gap-1.5 transition-colors ${activeTab === 'home' ? 'text-cyan-app' : 'text-muted'}`}>
+                        <div className={`p-1.5 rounded-xl ${activeTab === 'home' ? 'bg-cyan-app text-black' : ''}`}>
+                            <SvgIcon content={`<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>`} className="w-6 h-6" />
+                        </div>
+                        <span className="text-[10px] font-bold">{t.navHome}</span>
+                    </button>
+                    
+                    <button onClick={() => { setActiveTab('map'); setSheetState('hidden'); }} className={`flex flex-col items-center justify-center w-16 gap-1.5 transition-colors ${activeTab === 'map' ? 'text-cyan-app' : 'text-muted'}`}>
+                        <div className={`p-1.5 rounded-xl ${activeTab === 'map' ? 'bg-cyan-app text-black' : ''}`}>
+                            <SvgIcon content={`<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>`} className="w-6 h-6" />
+                        </div>
+                        <span className="text-[10px] font-bold">{t.navMap}</span>
+                    </button>
+
+                    <button onClick={() => { setActiveTab('chat'); setSheetState('hidden'); }} className={`flex flex-col items-center justify-center w-16 gap-1.5 transition-colors ${activeTab === 'chat' ? 'text-cyan-app' : 'text-muted'}`}>
+                        <div className={`p-1.5 rounded-xl ${activeTab === 'chat' ? 'bg-cyan-app text-black' : ''}`}>
+                            <SvgIcon content={`<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>`} className="w-6 h-6" />
+                        </div>
+                        <span className="text-[10px] font-bold">{t.navBook}</span>
+                    </button>
+
+                    <button onClick={() => { setActiveTab('profile'); setSheetState('hidden'); }} className={`flex flex-col items-center justify-center w-16 gap-1.5 transition-colors ${activeTab === 'profile' ? 'text-cyan-app' : 'text-muted'}`}>
+                        <div className={`p-1.5 rounded-xl ${activeTab === 'profile' ? 'bg-cyan-app text-black' : ''}`}>
+                            <SvgIcon content={`<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>`} className="w-6 h-6" />
+                        </div>
+                        <span className="text-[10px] font-bold">{t.navProf}</span>
+                    </button>
+                </div>
+            </div>
+        );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+</script>
+
+</body>
+</html>
